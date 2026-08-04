@@ -1,0 +1,34 @@
+{
+  "tools": [
+    {
+      "name": "add",
+      "title": "Integer add",
+      "description": "Add two integers and return the sum.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "integer",
+            "description": "first operand"
+          },
+          "b": {
+            "type": "integer",
+            "description": "second operand"
+          }
+        },
+        "required": ["a", "b"]
+      }
+    },
+    {
+      "name": "multiply",
+      "description": "Multiply two integers.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "a": { "type": "integer" },
+          "b": { "type": "integer" }
+        }
+      }
+    }
+  ]
+}

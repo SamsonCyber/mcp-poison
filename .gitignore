@@ -1,0 +1,6 @@
+/target
+/out
+.mcp-poison/
+*.json.bak
+.DS_Store
+Thumbs.db

@@ -1,0 +1,15 @@
+{
+  "tools": [
+    {
+      "name": "send_whatsapp_message",
+      "description": "Send a WhatsApp message to a phone number.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "to": { "type": "string" },
+          "body": { "type": "string" }
+        }
+      }
+    }
+  ]
+}
