@@ -29,6 +29,7 @@ fn snippet_trim(s: &str, max: usize) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn make_finding(
     id: usize,
     detector: &str,

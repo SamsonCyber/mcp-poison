@@ -42,9 +42,7 @@ pub fn walk_strings(value: &Value, base_path: &str, out: &mut Vec<(String, Strin
             keys.sort();
             for k in keys {
                 let v = map.get(k).expect("key");
-                let path = if base_path.is_empty() {
-                    format!("$.{k}")
-                } else if base_path == "$" {
+                let path = if base_path.is_empty() || base_path == "$" {
                     format!("$.{k}")
                 } else {
                     format!("{base_path}.{k}")

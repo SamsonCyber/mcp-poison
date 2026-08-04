@@ -102,11 +102,9 @@ impl ScanReport {
     }
 }
 
-pub fn proof_class_for_transport(from_list: bool, has_command: bool) -> ProofClass {
+pub fn proof_class_for_transport(from_list: bool, _has_command: bool) -> ProofClass {
     if from_list {
         ProofClass::Fixture
-    } else if has_command {
-        ProofClass::Local
     } else {
         ProofClass::Local
     }

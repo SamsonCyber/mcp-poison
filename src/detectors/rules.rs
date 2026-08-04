@@ -240,6 +240,7 @@ impl RulePack {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn re_rule(
     id: &str,
     detector: &str,

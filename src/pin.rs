@@ -155,6 +155,7 @@ pub fn diff_pins(
     findings
 }
 
+#[allow(clippy::too_many_arguments)]
 fn pin_finding(
     id: usize,
     detector: &str,
