@@ -1,0 +1,21 @@
+# mcp-poison gitleaks config
+# Extends default rules; allowlists research fixtures that intentionally
+# contain poison / canary *strings* (not live credentials).
+
+title = "mcp-poison"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Research fixtures and detector unit strings (CANARY / FOO / example.com only)"
+paths = [
+  '''fixtures/.*''',
+  '''tests/.*''',
+  '''src/detectors/rules\.rs''',
+  '''src/detectors/mod\.rs''',
+]
+
+# Explicit stop-gaps: never allow real key shapes even inside allowlisted paths
+# if they look like live tokens (gitleaks still applies global rules unless path-skipped).
+# Path allowlist above is intentional for fake poison samples only.
