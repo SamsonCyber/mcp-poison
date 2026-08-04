@@ -95,6 +95,7 @@ pub fn is_lab_canary_docs(text: &str) -> bool {
 }
 
 impl RulePack {
+    #[allow(clippy::vec_init_then_push)]
     pub fn default_pack() -> Self {
         let mut rules = Vec::new();
 
