@@ -1,8 +1,8 @@
-# mcp-poison gitleaks config
+# mcpdoctor gitleaks config
 # Extends default rules; allowlists research fixtures that intentionally
 # contain poison / canary *strings* (not live credentials).
 
-title = "mcp-poison"
+title = "mcpdoctor"
 
 [extend]
 useDefault = true

@@ -1,5 +1,5 @@
-use mcp_poison::scan::{scan_from_tools_list, ScanOptions};
-use mcp_poison::types::Severity;
+use mcpdoctor::scan::{scan_from_tools_list, ScanOptions};
+use mcpdoctor::types::Severity;
 use std::path::PathBuf;
 
 fn fixture(name: &str) -> PathBuf {
@@ -86,8 +86,8 @@ fn t8_ansi() {
 
 #[test]
 fn pin_then_rugpull() {
-    use mcp_poison::pin::{diff_pins, make_pins};
-    use mcp_poison::types::{ToolDef, ToolsListResult};
+    use mcpdoctor::pin::{diff_pins, make_pins};
+    use mcpdoctor::types::{ToolDef, ToolsListResult};
 
     let clean: ToolsListResult = serde_json::from_str(
         &std::fs::read_to_string(fixture("clean_calculator.json")).unwrap(),

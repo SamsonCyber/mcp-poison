@@ -1,4 +1,4 @@
-//! mcp-poison: protocol-native MCP tool-surface auditor.
+//! mcpdoctor: protocol-native MCP tool-surface auditor.
 //!
 //! Default path is non-mutating: connect (or load a captured `tools/list`),
 //! walk every schema string leaf, emit structured findings, optional pin/check.
@@ -13,5 +13,5 @@ pub mod scan;
 pub mod types;
 
 pub use report::ScanReport;
-pub use scan::{scan_from_tools_list, scan_stdio, ScanOptions};
+pub use scan::{scan_from_tools_list, scan_multi_lists, scan_stdio, ScanOptions};
 pub use types::{Finding, ProofClass, Severity};

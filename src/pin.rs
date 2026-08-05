@@ -24,7 +24,13 @@ pub fn save_store(path: &Path, store: &PinStore) -> Result<()> {
         fs::create_dir_all(parent)?;
     }
     let text = serde_json::to_string_pretty(store)?;
-    fs::write(path, text).with_context(|| format!("write pin store {}", path.display()))?;
+    // Atomic-ish replace: write temp beside target, then rename (Windows: remove first).
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, &text).with_context(|| format!("write pin temp {}", tmp.display()))?;
+    if path.exists() {
+        fs::remove_file(path).with_context(|| format!("remove old pin {}", path.display()))?;
+    }
+    fs::rename(&tmp, path).with_context(|| format!("rename pin store to {}", path.display()))?;
     Ok(())
 }
 

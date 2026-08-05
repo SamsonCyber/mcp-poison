@@ -57,7 +57,7 @@ impl ScanReport {
 
     pub fn to_markdown(&self) -> String {
         let mut md = String::new();
-        md.push_str("# mcp-poison scan report\n\n");
+        md.push_str("# mcpdoctor scan report\n\n");
         md.push_str(&format!("- scan_id: `{}`\n", self.scan_id));
         md.push_str(&format!("- proof_class: {}\n", self.target.proof_class));
         md.push_str(&format!("- tools: {}\n", self.summary.tools));

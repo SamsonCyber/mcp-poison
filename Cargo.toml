@@ -1,12 +1,13 @@
 [package]
-name = "mcp_poison"
-version = "0.1.0"
+name = "mcpdoctor"
+version = "0.2.0"
 edition = "2021"
-description = "Protocol-native MCP tool-surface auditor (full-schema poison, pin/rugpull)"
+description = "MCPDoctor: lint and pin MCP tool catalogs for schema poison and rugpulls"
 license = "MIT"
 readme = "README.md"
-keywords = ["mcp", "security", "tool-poisoning", "llm", "agent"]
+keywords = ["mcp", "security", "tool-poisoning", "llm", "agent", "audit"]
 categories = ["command-line-utilities", "development-tools"]
+repository = "https://github.com/SamsonCyber/mcpdoctor"
 
 [dependencies]
 anyhow = "1.0.104"
@@ -18,7 +19,6 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.11.0"
 thiserror = "2.0.19"
-tokio = { version = "1.53.1", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 uuid = { version = "1.24.0", features = ["v4", "serde"] }
@@ -27,9 +27,14 @@ uuid = { version = "1.24.0", features = ["v4", "serde"] }
 tempfile = "3"
 
 [[bin]]
+name = "mcpdoctor"
+path = "src/main.rs"
+
+# Compat alias for old installs / muscle memory
+[[bin]]
 name = "mcp-poison"
 path = "src/main.rs"
 
 [lib]
-name = "mcp_poison"
+name = "mcpdoctor"
 path = "src/lib.rs"

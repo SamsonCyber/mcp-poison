@@ -1,104 +1,90 @@
-# mcp-poison
+# MCPDoctor
 
-Protocol-native **MCP tool-surface auditor** in Rust.
+**Lint and pin MCP tool catalogs.** Full-schema static analysis for tool poisoning (MCP03), plus content-hash pin/check for rugpulls.
 
-Connects like an MCP client (or loads a captured `tools/list`), walks **every schema string leaf** (full-schema / FSP), runs static detectors for tool poisoning, and supports **content-hash pin/check** for rugpulls.
+Not a jailbreak generator. Not a model judge. Default path is **non-mutating** (no `tools/call`).
 
-Default path is **non-mutating** (no `tools/call`).
+[![CI](https://github.com/SamsonCyber/mcpdoctor/actions/workflows/ci.yml/badge.svg)](https://github.com/SamsonCyber/mcpdoctor/actions/workflows/ci.yml)
 
-## Build
-
-```bash
-cargo build --release
-# binary: target/release/mcp-poison
-```
-
-## Quick start (offline fixtures)
+## Install
 
 ```bash
-# Line-jump poison (T3) — expect findings, exit 2
-cargo run -- scan --from-list fixtures/t3_line_jump.json --markdown
-
-# Clean baseline — expect 0 findings, exit 0
-cargo run -- scan --from-list fixtures/clean_calculator.json --fail-on high
-
-# Param-name semantic exfil (T6 / FSP)
-cargo run -- scan --from-list fixtures/t6_param_names.json
-
-# ANSI concealment (T8)
-cargo run -- scan --from-list fixtures/t8_ansi.json
+cargo install --path .
+# binary: mcpdoctor  (compat alias: mcp-poison)
 ```
 
-## Pin / rugpull check
+## Happy path
 
 ```bash
-cargo run -- pin --from-list fixtures/clean_calculator.json --store .mcp-poison/pins.json --server-key calc
+# Offline fixtures (exit 2 = findings at/above --fail-on)
+mcpdoctor fixtures/t3_line_jump.json
+mcpdoctor scan fixtures/clean_calculator.json --trusted   # expect 0 findings
 
-# After a description swap, check fails:
-cargo run -- check --from-list fixtures/t1_description_poison.json --store .mcp-poison/pins.json --server-key calc
+# Cross-server shadow (two tools/list dumps)
+mcpdoctor multi fixtures/t4_cross_server_a.json fixtures/t4_cross_server_b.json
+
+# Live stdio (Python FastMCP = NDJSON)
+mcpdoctor scan -- python -m agent_tooling.sqlite_mcp
+mcpdoctor scan --command python --arg=-m --arg agent_tooling.sqlite_mcp
+
+# Pin / rugpull gate
+mcpdoctor pin fixtures/clean_calculator.json --server-key calc
+mcpdoctor check fixtures/t1_description_poison.json --server-key calc
 ```
 
-## Live stdio server
+Exit codes: **0** clean · **2** findings · **1** error.
+
+## What it does
+
+1. Speaks MCP over stdio (`initialize` → `tools/list`) or loads a captured list.
+2. Walks **every schema string leaf** (name, title, description, param keys, nested schema).
+3. Runs static detectors (instruction override, exfil paths, line-jump, ANSI, semantic param names, pin drift, …).
+4. Emits structured JSON findings with technique tags (T1–T12 style) and OWASP MCP03 / ATLAS hints.
+5. Optional **pin store**: hash inventory after human review; CI fails on silent description swap.
+
+### Hard limits (anti-DoS)
+
+| Limit | Value |
+|-------|------:|
+| tools/list file size | 8 MiB |
+| tools per inventory | 5_000 |
+| schema walk depth | 64 |
+| string leaves | 50_000 |
+| string chars (clip) | 500_000 |
+| stdio handshake | timeout + kill |
+
+### Honest scope
+
+| This tool | Not this tool |
+|-----------|----------------|
+| Static schema / metadata poison | Live ASR against a specific model |
+| Pin/rugpull for supply chain | Full MCP gateway runtime |
+| Cross-server description shadow (multi lists) | Dynamic `tools/call` output injection (roadmap) |
+| NDJSON + Content-Length read | Hosted SaaS |
+
+Hygiene docs (“do not put API keys in the query”) and lab canary writeups are filtered so red-team servers do not always fail closed.
+
+## Architecture
+
+```text
+CLI (clap)
+  → scan | multi | pin | check | detectors
+  → client/stdio (NDJSON or Content-Length)
+  → normalize (full-schema walk, caps)
+  → detectors (rules + concealment + semantic + pin)
+  → report (JSON / Markdown, exit codes)
+```
+
+Library crate: `mcpdoctor` (`scan_from_tools_list`, `scan_stdio`, `scan_multi_lists`).
+
+## Tests
 
 ```bash
-cargo run -- scan --command npx --arg -y --arg some-mcp-server -o report.json
+cargo test
+cargo clippy --all-targets -- -D warnings
 ```
 
-Uses MCP **Content-Length** framing: `initialize` → `notifications/initialized` → `tools/list` (paginated).
-
-## Detectors (MVP)
-
-| ID | Technique | What |
-|----|-----------|------|
-| D01 | T1 | Instruction-override language |
-| D02 | T1 | Secret path / network exfil directives |
-| D03 | T3 | Line-jump (consult first / prefix all shell) |
-| D04 | T4 | Conceal-from-user / cross-server phrases |
-| D05 | T4 | Extreme whitespace hide |
-| D06 | T8 | ANSI concealment |
-| D07 | T8 | Bidi / zero-width / tag chars |
-| D08 | T6 | Param/tool **name** semantic exfil |
-| D09 | T12 | Long description + late payload |
-| D10 | T11 | Deferred sleeper triggers |
-| D11 | T1 | Trusted host tool name collision |
-| D12 | T6 | Schema oddity / size |
-| D20–D24 | T2 | Pin drift / command swap / new tool |
-
-## Exit codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | OK (no findings at or above `--fail-on`) |
-| 1 | Usage / IO / protocol error |
-| 2 | Findings at or above threshold |
-
-## Library
-
-```rust
-use mcp_poison::scan::{scan_from_tools_list, ScanOptions};
-use std::path::Path;
-
-let report = scan_from_tools_list(
-    Path::new("fixtures/t3_line_jump.json"),
-    &ScanOptions::default(),
-    Some("t3"),
-)?;
-assert!(report.summary.findings > 0);
-```
-
-## Safety
-
-- Static analysis only by default
-- Fixtures use `CANARY` / `FOO` markers
-- Do not point live `--command` at untrusted packages without a sandbox
-- Not a jailbreak generator; not a substitute for least-privilege agent design
-
-## Roadmap
-
-- Multi-server config scan + cross-server graph (D04 inventory-aware)
-- `serve-mcp` agent tools
-- SARIF export
-- Optional policy-gated dynamic `tools/call` output scan (D30)
+Includes offline fixtures (T1/T3/T6/T8), pin rugpull, multi-list, and a live NDJSON mock server under `tests/mock_mcp_server.py`.
 
 ## License
 

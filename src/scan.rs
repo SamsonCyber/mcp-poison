@@ -1,18 +1,25 @@
 use crate::client::{inventory_stdio, Framing, StdioTarget};
-use crate::detectors::{scan_tools, StaticScanOptions};
+use crate::detectors::{detect_cross_server_shadow, scan_tools, StaticScanOptions};
 use crate::hash::server_hash;
 use crate::pin::{diff_pins, make_pins};
 use crate::report::{proof_class_for_transport, ScanReport};
-use crate::types::{ProofClass, TargetInfo, ToolDef, ToolPins, ToolsListResult};
-use anyhow::{Context, Result};
+use crate::types::{
+    Finding, ProofClass, TargetInfo, ToolDef, ToolPins, ToolsListResult,
+};
+use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
+
+/// Refuse multi-hundred-MB "tools lists" that are DoS, not inventories.
+pub const MAX_LIST_BYTES: u64 = 8 * 1024 * 1024;
+pub const MAX_TOOLS: usize = 5_000;
 
 #[derive(Debug, Clone)]
 pub struct ScanOptions {
     pub untrusted: bool,
     pub timeout: Duration,
+    pub framing: Framing,
 }
 
 impl Default for ScanOptions {
@@ -20,6 +27,7 @@ impl Default for ScanOptions {
         Self {
             untrusted: true,
             timeout: Duration::from_secs(30),
+            framing: Framing::Ndjson,
         }
     }
 }
@@ -30,10 +38,22 @@ pub fn scan_from_tools_list(
     opts: &ScanOptions,
     label: Option<&str>,
 ) -> Result<ScanReport> {
+    let meta = fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
+    if meta.len() > MAX_LIST_BYTES {
+        bail!(
+            "tools list {} is {} bytes (max {})",
+            path.display(),
+            meta.len(),
+            MAX_LIST_BYTES
+        );
+    }
     let text = fs::read_to_string(path)
         .with_context(|| format!("read tools list {}", path.display()))?;
     let value: serde_json::Value = serde_json::from_str(&text).context("parse tools list JSON")?;
     let tools = extract_tools(&value)?;
+    if tools.len() > MAX_TOOLS {
+        bail!("tools list has {} tools (max {})", tools.len(), MAX_TOOLS);
+    }
     let static_opts = StaticScanOptions {
         untrusted: opts.untrusted,
     };
@@ -54,6 +74,52 @@ pub fn scan_from_tools_list(
         proof_class: ProofClass::Fixture,
     };
     Ok(ScanReport::new(target, findings, pins, tools))
+}
+
+/// Scan several inventories together (cross-server shadow detection).
+pub fn scan_multi_lists(
+    paths: &[(String, &Path)],
+    opts: &ScanOptions,
+) -> Result<ScanReport> {
+    let mut inventories: Vec<(String, ToolsListResult)> = Vec::new();
+    let mut all_tools: Vec<ToolDef> = Vec::new();
+    let mut findings: Vec<Finding> = Vec::new();
+    let static_opts = StaticScanOptions {
+        untrusted: opts.untrusted,
+    };
+    for (sid, path) in paths {
+        let meta = fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
+        if meta.len() > MAX_LIST_BYTES {
+            bail!("tools list {} too large", path.display());
+        }
+        let text = fs::read_to_string(path)?;
+        let value: serde_json::Value = serde_json::from_str(&text)?;
+        let tools = extract_tools(&value)?;
+        findings.extend(scan_tools(&tools, &static_opts));
+        inventories.push((
+            sid.clone(),
+            ToolsListResult {
+                tools: tools.clone(),
+                next_cursor: None,
+            },
+        ));
+        all_tools.extend(tools);
+    }
+    let mut next_id = findings.len() + 1;
+    detect_cross_server_shadow(&inventories, &mut findings, &mut next_id);
+    for (i, f) in findings.iter_mut().enumerate() {
+        f.id = format!("F-{:03}", i + 1);
+    }
+    let pins = make_pins("multi", &all_tools, None, vec![], Some("multi".into()));
+    let target = TargetInfo {
+        transport: "offline-multi".into(),
+        server_name: Some("multi".into()),
+        server_version: None,
+        command: None,
+        args: vec![],
+        proof_class: ProofClass::Fixture,
+    };
+    Ok(ScanReport::new(target, findings, pins, all_tools))
 }
 
 pub fn scan_tools_value(
@@ -89,8 +155,7 @@ pub fn scan_stdio(
         env: env.to_vec(),
         cwd: cwd.map(|s| s.to_string()),
         timeout: opts.timeout,
-        // Python FastMCP / official `mcp` package uses NDJSON lines.
-        framing: Framing::Ndjson,
+        framing: opts.framing,
     };
     let inv = inventory_stdio(&target)?;
     let mut report = scan_tools_value(

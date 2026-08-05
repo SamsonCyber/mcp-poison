@@ -26,21 +26,49 @@ pub fn canonical_json(value: &Value) -> String {
     }
 }
 
+/// Hard caps so hostile schemas cannot stack-overflow or RAM-bomb the scanner.
+pub const MAX_WALK_DEPTH: usize = 64;
+pub const MAX_STRING_LEAVES: usize = 50_000;
+pub const MAX_STRING_CHARS: usize = 500_000;
+
 /// Walk every JSON string leaf under a value; `base_path` is a JSONPath-ish prefix.
 pub fn walk_strings(value: &Value, base_path: &str, out: &mut Vec<(String, String)>) {
+    walk_strings_limited(value, base_path, out, 0);
+}
+
+fn walk_strings_limited(
+    value: &Value,
+    base_path: &str,
+    out: &mut Vec<(String, String)>,
+    depth: usize,
+) {
+    if depth > MAX_WALK_DEPTH || out.len() >= MAX_STRING_LEAVES {
+        return;
+    }
     match value {
         Value::String(s) => {
-            out.push((base_path.to_string(), s.clone()));
+            let clipped = if s.chars().count() > MAX_STRING_CHARS {
+                s.chars().take(MAX_STRING_CHARS).collect::<String>()
+            } else {
+                s.clone()
+            };
+            out.push((base_path.to_string(), clipped));
         }
         Value::Array(arr) => {
             for (i, item) in arr.iter().enumerate() {
-                walk_strings(item, &format!("{base_path}[{i}]"), out);
+                if out.len() >= MAX_STRING_LEAVES {
+                    break;
+                }
+                walk_strings_limited(item, &format!("{base_path}[{i}]"), out, depth + 1);
             }
         }
         Value::Object(map) => {
             let mut keys: Vec<&String> = map.keys().collect();
             keys.sort();
             for k in keys {
+                if out.len() >= MAX_STRING_LEAVES {
+                    break;
+                }
                 let v = map.get(k).expect("key");
                 let path = if base_path.is_empty() || base_path == "$" {
                     format!("$.{k}")
@@ -48,11 +76,10 @@ pub fn walk_strings(value: &Value, base_path: &str, out: &mut Vec<(String, Strin
                     format!("{base_path}.{k}")
                 };
                 // Property *names* in inputSchema are also model-visible (T6).
-                // Emit the key as a synthetic string leaf when under properties.
                 if base_path.ends_with(".properties") || base_path.ends_with("properties") {
                     out.push((format!("{path}#key"), k.clone()));
                 }
-                walk_strings(v, &path, out);
+                walk_strings_limited(v, &path, out, depth + 1);
             }
         }
         _ => {}

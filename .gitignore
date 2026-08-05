@@ -1,5 +1,6 @@
-/target
+﻿/target
 /out
+.mcpdoctor/
 .mcp-poison/
 *.json.bak
 .DS_Store

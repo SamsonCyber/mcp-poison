@@ -239,7 +239,7 @@ pub fn inventory_stdio(target: &StdioTarget) -> Result<Inventory> {
                 "sampling": {}
             },
             "clientInfo": {
-                "name": "mcp-poison",
+                "name": "mcpdoctor",
                 "version": env!("CARGO_PKG_VERSION")
             }
         });
