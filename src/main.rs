@@ -8,111 +8,114 @@ use mcpdoctor::scan::{
 };
 use mcpdoctor::types::Severity;
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use tracing_subscriber::EnvFilter;
 
 const AFTER_HELP: &str = "\
-Examples:
-  mcpdoctor fixtures/t3_line_jump.json
-  mcpdoctor scan fixtures/clean_calculator.json --trusted
-  mcpdoctor multi fixtures/t4_cross_server_a.json fixtures/t4_cross_server_b.json
-  mcpdoctor scan -- python -m agent_tooling.sqlite_mcp
-  mcpdoctor scan --command python --arg=-m --arg agent_tooling.sqlite_mcp
-  mcpdoctor pin fixtures/clean_calculator.json --server-key calc
-  mcpdoctor check fixtures/t1_description_poison.json --server-key calc
-  mcpdoctor detectors
+Quick start:
+  mcpdoctor tools.json                 scan one inventory (human summary)
+  mcpdoctor a.json b.json              cross-server multi scan
+  mcpdoctor scan -- python -m my_mcp   live stdio server after --
+  mcpdoctor pin tools.json             save hashes after you reviewed them
+  mcpdoctor check tools.json           fail if inventory drifted
 
-Exit codes: 0 clean/ok, 2 findings at or above --fail-on, 1 error.
+Output:
+  default     short human summary (CLEAN / FINDINGS)
+  --json      full machine JSON on stdout
+  -o file     write full JSON report to file
+  --md file   write Markdown report to file
 
-Hyphen values: use --arg=-m or put the server after -- (scan -- python -m pkg).
-Limits: tools list <= 8 MiB, <= 5000 tools, schema walk depth/leaf caps (DoS guard).
-Static heuristics: not a model-level jailbreak judge; pair with live agent eval for ASR claims.
+Aliases: doctor | audit  →  scan
+
+Exit: 0 clean/ok · 2 findings ≥ --fail-on · 1 error
+Hyphen args:  --arg=-m   or   scan -- python -m pkg
 ";
 
 #[derive(Parser, Debug)]
 #[command(
     name = "mcpdoctor",
-    about = "Scan MCP tool surfaces for schema poison and rugpulls",
-    long_about = "Protocol-native MCP tool-surface auditor.\n\
-Connects like a client (or loads a tools/list JSON), walks every schema string, \
-emits findings. Default path is non-mutating (no tools/call).",
+    about = "MCPDoctor: lint MCP tool catalogs for poison + rugpulls",
+    long_about = "Connect like an MCP client (or load a tools/list JSON), walk every \
+schema string, emit findings. Non-mutating by default (no tools/call).",
     version,
-    after_help = AFTER_HELP
+    after_help = AFTER_HELP,
+    disable_help_subcommand = true
 )]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
 
-    /// Log filter (default: mcpdoctor=info)
-    #[arg(long, global = true, default_value = "mcpdoctor=info,warn")]
+    /// Log filter
+    #[arg(long, global = true, default_value = "warn")]
     log: String,
 }
 
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Scan a tools/list JSON or a live stdio MCP server
+    #[command(visible_alias = "doctor", alias = "audit")]
     Scan {
-        /// tools/list JSON path (positional). Primary offline path.
+        /// tools/list JSON path
         #[arg(value_name = "LIST_JSON")]
         list: Option<PathBuf>,
 
-        /// Alias for positional LIST_JSON
-        #[arg(long = "from-list", value_name = "PATH")]
+        /// Alias for LIST_JSON
+        #[arg(long = "from-list", value_name = "PATH", hide = true)]
         from_list: Option<PathBuf>,
 
-        /// Spawn stdio MCP server command (use with --arg, or prefer trailing --)
+        /// Spawn stdio command (prefer: scan -- prog args)
         #[arg(long)]
         command: Option<String>,
 
-        /// Args for --command. Hyphen-safe: --arg=-m
+        /// Args for --command (hyphen-safe: --arg=-m)
         #[arg(long = "arg", allow_hyphen_values = true)]
         args: Vec<String>,
 
-        /// Working directory for stdio server
         #[arg(long)]
         cwd: Option<String>,
 
-        /// Extra env KEY=VALUE for the child process
         #[arg(long = "env", value_name = "KEY=VALUE")]
         env: Vec<String>,
 
-        /// Stdio handshake timeout seconds
         #[arg(long, default_value_t = 20)]
         timeout_secs: u64,
 
-        /// Write JSON report to this path
+        /// Write full JSON report to path
         #[arg(long, short = 'o')]
         out: Option<PathBuf>,
 
-        /// Also write Markdown report
+        /// Write Markdown report to path
         #[arg(long)]
         md: Option<PathBuf>,
 
-        /// Treat server as trusted (disable D11 name-collision)
+        /// Print full JSON to stdout (default is short human summary)
         #[arg(long)]
-        trusted: bool,
+        json: bool,
 
-        /// Fail exit code 2 if severity >= threshold
-        #[arg(long, default_value = "high")]
-        fail_on: String,
-
-        /// Print Markdown to stdout
+        /// Print long Markdown to stdout
         #[arg(long)]
         markdown: bool,
 
-        /// Wire framing for live stdio: ndjson (Python MCP) or content-length (TS)
+        /// Treat server as trusted (skip D11 name-collision)
+        #[arg(long)]
+        trusted: bool,
+
+        /// Exit 2 if severity >= this (info|low|medium|high|critical)
+        #[arg(long, default_value = "high")]
+        fail_on: String,
+
+        /// Wire framing: ndjson (Python) or content-length (TS)
         #[arg(long, value_enum, default_value_t = FramingArg::Ndjson)]
         framing: FramingArg,
 
-        /// Server argv after `--`: mcpdoctor scan -- python -m pkg
+        /// Server argv after `--`
         #[arg(last = true, allow_hyphen_values = true)]
         server: Vec<String>,
     },
 
-    /// Scan two+ tools/list JSON files together (cross-server shadow)
+    /// Scan two+ tools/list files (cross-server shadow)
     Multi {
-        /// tools/list JSON paths (at least two)
         #[arg(required = true, num_args = 2..)]
         lists: Vec<PathBuf>,
 
@@ -126,15 +129,21 @@ enum Commands {
         out: Option<PathBuf>,
 
         #[arg(long)]
+        md: Option<PathBuf>,
+
+        #[arg(long)]
+        json: bool,
+
+        #[arg(long)]
         markdown: bool,
     },
 
-    /// Pin current inventory hashes after human review
+    /// Pin inventory hashes after human review
     Pin {
         #[arg(value_name = "LIST_JSON")]
         list: Option<PathBuf>,
 
-        #[arg(long = "from-list", value_name = "PATH")]
+        #[arg(long = "from-list", value_name = "PATH", hide = true)]
         from_list: Option<PathBuf>,
 
         #[arg(long)]
@@ -155,19 +164,20 @@ enum Commands {
         #[arg(long, default_value = ".mcpdoctor/pins.json")]
         store: PathBuf,
 
-        #[arg(long, default_value = "default")]
+        /// Name for this server in the pin store
+        #[arg(long, short = 'k', default_value = "default")]
         server_key: String,
 
         #[arg(last = true, allow_hyphen_values = true)]
         server: Vec<String>,
     },
 
-    /// Diff current inventory against pin store (CI gate)
+    /// Fail if inventory drifted from pin store (CI gate)
     Check {
         #[arg(value_name = "LIST_JSON")]
         list: Option<PathBuf>,
 
-        #[arg(long = "from-list", value_name = "PATH")]
+        #[arg(long = "from-list", value_name = "PATH", hide = true)]
         from_list: Option<PathBuf>,
 
         #[arg(long)]
@@ -188,7 +198,7 @@ enum Commands {
         #[arg(long, default_value = ".mcpdoctor/pins.json")]
         store: PathBuf,
 
-        #[arg(long, default_value = "default")]
+        #[arg(long, short = 'k', default_value = "default")]
         server_key: String,
 
         #[arg(long, short = 'o')]
@@ -200,11 +210,17 @@ enum Commands {
         #[arg(long)]
         trusted: bool,
 
+        #[arg(long)]
+        json: bool,
+
+        #[arg(long)]
+        markdown: bool,
+
         #[arg(last = true, allow_hyphen_values = true)]
         server: Vec<String>,
     },
 
-    /// List built-in detectors
+    /// List detectors
     Detectors {
         #[arg(long, value_enum, default_value_t = OutFormat::Text)]
         format: OutFormat,
@@ -233,25 +249,58 @@ impl From<FramingArg> for Framing {
     }
 }
 
-/// Insert `scan` when the first arg looks like a tools-list path (not a subcommand).
+fn looks_like_list_path(s: &str) -> bool {
+    if s.starts_with('-') {
+        return false;
+    }
+    s.ends_with(".json") || Path::new(s).is_file()
+}
+
+/// Rewrite argv into clap-friendly form:
+///   tools.json              → scan tools.json
+///   a.json b.json           → multi a.json b.json
+///   doctor|audit …          → scan …
 fn preprocess_argv(raw: Vec<String>) -> Vec<String> {
     if raw.len() < 2 {
         return raw;
     }
     let first = raw[1].as_str();
-    const SUBS: &[&str] = &["scan", "multi", "pin", "check", "detectors", "help"];
+    const SUBS: &[&str] = &[
+        "scan", "doctor", "audit", "multi", "pin", "check", "detectors", "help",
+    ];
+
+    // Alias doctor/audit already handled by clap once we pass them; leave them.
     if first.starts_with('-') || SUBS.contains(&first) {
         return raw;
     }
-    // Bare path → scan <path>
-    if first.ends_with(".json") || std::path::Path::new(first).exists() {
-        let mut out = Vec::with_capacity(raw.len() + 1);
-        out.push(raw[0].clone());
-        out.push("scan".into());
-        out.extend(raw.into_iter().skip(1));
-        return out;
+
+    // Collect leading list-like paths before first option/subcommand.
+    let mut paths: Vec<String> = Vec::new();
+    for arg in raw.iter().skip(1) {
+        if arg.starts_with('-') {
+            break;
+        }
+        if looks_like_list_path(arg) {
+            paths.push(arg.clone());
+        } else {
+            break;
+        }
     }
-    raw
+    if paths.is_empty() {
+        return raw;
+    }
+
+    let rest: Vec<String> = raw.iter().skip(1 + paths.len()).cloned().collect();
+    let mut out = vec![raw[0].clone()];
+    if paths.len() >= 2 {
+        out.push("multi".into());
+        out.extend(paths);
+    } else {
+        out.push("scan".into());
+        out.extend(paths);
+    }
+    out.extend(rest);
+    out
 }
 
 fn main() -> ExitCode {
@@ -283,9 +332,10 @@ fn real_main() -> Result<ExitCode> {
             timeout_secs,
             out,
             md,
+            json,
+            markdown,
             trusted,
             fail_on,
-            markdown,
             framing,
             server,
         } => {
@@ -297,7 +347,7 @@ fn real_main() -> Result<ExitCode> {
             let (cmd, cmd_args) = resolve_target(command, args, server)?;
             let list_path = list.or(from_list);
             let report = run_scan(list_path, cmd, cmd_args, cwd, &parse_env(&env)?, &opts)?;
-            emit_report(&report, out, md, markdown)?;
+            emit_report(&report, out, md, json, markdown)?;
             Ok(exit_for_findings(&report, &fail_on)?)
         }
         Commands::Multi {
@@ -305,13 +355,15 @@ fn real_main() -> Result<ExitCode> {
             trusted,
             fail_on,
             out,
+            md,
+            json,
             markdown,
         } => {
             let opts = ScanOptions {
                 untrusted: !trusted,
                 ..ScanOptions::default()
             };
-            let pairs: Vec<(String, &std::path::Path)> = lists
+            let pairs: Vec<(String, &Path)> = lists
                 .iter()
                 .enumerate()
                 .map(|(i, p)| {
@@ -325,7 +377,7 @@ fn real_main() -> Result<ExitCode> {
                 })
                 .collect();
             let report = scan_multi_lists(&pairs, &opts)?;
-            emit_report(&report, out, None, markdown)?;
+            emit_report(&report, out, md, json, markdown)?;
             Ok(exit_for_findings(&report, &fail_on)?)
         }
         Commands::Pin {
@@ -359,7 +411,7 @@ fn real_main() -> Result<ExitCode> {
             upsert_pin(&mut pin_store, &server_key, pins);
             save_store(&store, &pin_store)?;
             eprintln!(
-                "pinned server_key={server_key} tools={} hash={} -> {}",
+                "PINNED  key={server_key}  tools={}  hash={}  -> {}",
                 report.summary.tools,
                 report.summary.server_hash,
                 store.display()
@@ -379,6 +431,8 @@ fn real_main() -> Result<ExitCode> {
             out,
             fail_on,
             trusted,
+            json,
+            markdown,
             server,
         } => {
             let opts = ScanOptions {
@@ -400,7 +454,7 @@ fn real_main() -> Result<ExitCode> {
             let pin_store = load_store(&store)?;
             let Some(pins) = pin_store.servers.get(&server_key) else {
                 bail!(
-                    "no pin for server_key={server_key} in {}",
+                    "no pin for server_key={server_key} in {}\n  tip: mcpdoctor pin <list.json> -k {server_key}",
                     store.display()
                 );
             };
@@ -418,7 +472,7 @@ fn real_main() -> Result<ExitCode> {
                 &arg_ref,
                 base,
             );
-            emit_report(&report, out, None, false)?;
+            emit_report(&report, out, None, json, markdown)?;
             Ok(exit_for_findings(&report, &fail_on)?)
         }
         Commands::Detectors { format } => {
@@ -444,7 +498,6 @@ fn real_main() -> Result<ExitCode> {
     }
 }
 
-/// Merge --command/--arg with trailing `server` argv after `--`.
 fn resolve_target(
     command: Option<String>,
     args: Vec<String>,
@@ -493,49 +546,43 @@ fn run_scan(
         (None, Some(cmd)) => scan_stdio(&cmd, &args, env, cwd.as_deref(), opts),
         (Some(_), Some(_)) => bail!("use either a tools-list JSON or a server command, not both"),
         (None, None) => bail!(
-            "provide a tools-list JSON path or a server command\n\
-             examples: mcpdoctor fixtures/t3_line_jump.json\n\
-                       mcpdoctor scan -- python -m my_mcp"
+            "what should I scan?\n  \
+             mcpdoctor tools.json\n  \
+             mcpdoctor a.json b.json\n  \
+             mcpdoctor scan -- python -m my_mcp"
         ),
     }
 }
 
+/// Human summary by default; --json / -o for full machine report.
 fn emit_report(
     report: &ScanReport,
     out: Option<PathBuf>,
     md: Option<PathBuf>,
+    json_stdout: bool,
     markdown_stdout: bool,
 ) -> Result<()> {
-    let json = serde_json::to_string_pretty(report)?;
     if let Some(path) = &out {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        let json = serde_json::to_string_pretty(report)?;
         std::fs::write(path, &json).with_context(|| format!("write {}", path.display()))?;
         eprintln!("wrote {}", path.display());
-    } else if !markdown_stdout {
-        println!("{json}");
     }
-
-    if markdown_stdout {
-        print!("{}", report.to_markdown());
-    }
-    if let Some(path) = md {
-        std::fs::write(&path, report.to_markdown())
+    if let Some(path) = &md {
+        std::fs::write(path, report.to_markdown())
             .with_context(|| format!("write {}", path.display()))?;
         eprintln!("wrote {}", path.display());
     }
 
-    eprintln!(
-        "summary: tools={} findings={} max_severity={}",
-        report.summary.tools,
-        report.summary.findings,
-        report
-            .summary
-            .max_severity
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| "none".into())
-    );
+    if json_stdout {
+        println!("{}", serde_json::to_string_pretty(report)?);
+    } else if markdown_stdout {
+        print!("{}", report.to_markdown());
+    } else {
+        print!("{}", report.to_human());
+    }
     Ok(())
 }
 
@@ -586,6 +633,21 @@ mod tests {
         assert_eq!(out[1], "scan");
         assert_eq!(out[2], "fixtures/t3_line_jump.json");
         assert_eq!(out[3], "--trusted");
+    }
+
+    #[test]
+    fn preprocess_multi_for_two_json_paths() {
+        let raw = vec![
+            "mcpdoctor".into(),
+            "a.json".into(),
+            "b.json".into(),
+            "--trusted".into(),
+        ];
+        let out = preprocess_argv(raw);
+        assert_eq!(out[1], "multi");
+        assert_eq!(out[2], "a.json");
+        assert_eq!(out[3], "b.json");
+        assert_eq!(out[4], "--trusted");
     }
 
     #[test]

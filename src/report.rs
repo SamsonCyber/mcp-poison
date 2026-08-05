@@ -55,6 +55,44 @@ impl ScanReport {
         self.findings.iter().any(|f| f.severity >= threshold)
     }
 
+    /// Short terminal-friendly summary (default human output).
+    pub fn to_human(&self) -> String {
+        let mut out = String::new();
+        let max = self
+            .summary
+            .max_severity
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "none".into());
+        let name = self
+            .target
+            .server_name
+            .as_deref()
+            .unwrap_or(self.target.transport.as_str());
+        if self.findings.is_empty() {
+            out.push_str(&format!(
+                "CLEAN  {name}  tools={}  hash={}\n",
+                self.summary.tools, self.summary.server_hash
+            ));
+            return out;
+        }
+        out.push_str(&format!(
+            "FINDINGS  {name}  tools={}  findings={}  max={max}\n",
+            self.summary.tools, self.summary.findings
+        ));
+        for f in &self.findings {
+            out.push_str(&format!(
+                "  {}  [{:8}]  {}  {}  {}\n",
+                f.id, f.severity, f.detector, f.tool_name, f.title
+            ));
+            out.push_str(&format!("    path: {}\n", f.json_path));
+        }
+        out.push_str(&format!(
+            "hash={}  (use --json or -o for full report)\n",
+            self.summary.server_hash
+        ));
+        out
+    }
+
     pub fn to_markdown(&self) -> String {
         let mut md = String::new();
         md.push_str("# mcpdoctor scan report\n\n");
@@ -95,7 +133,10 @@ impl ScanReport {
             md.push_str(&format!("{}\n\n", f.detail));
             md.push_str(&format!("- technique: {}\n", f.technique));
             md.push_str(&format!("- path: `{}`\n", f.json_path));
-            md.push_str(&format!("- snippet: `{}`\n", f.evidence.snippet.replace('`', "'")));
+            md.push_str(&format!(
+                "- snippet: `{}`\n",
+                f.evidence.snippet.replace('`', "'")
+            ));
             md.push_str(&format!("- remediation: {}\n\n", f.remediation));
         }
         md
