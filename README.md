@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.jpg" alt="MCPDoctor banner" width="100%"/>
+</p>
+
 # MCPDoctor
 
 **Lint and pin MCP tool catalogs.** Full-schema static analysis for tool poisoning (MCP03), plus content-hash pin/check for rugpulls.
@@ -62,7 +66,7 @@ Exit codes: **0** clean · **2** findings · **1** error.
 | Cross-server description shadow (multi lists) | Dynamic `tools/call` output injection (roadmap) |
 | NDJSON + Content-Length read | Hosted SaaS |
 
-Hygiene docs (“do not put API keys in the query”) and lab canary writeups are filtered so red-team servers do not always fail closed.
+Hygiene docs ("do not put API keys in the query") and lab canary writeups are filtered so red-team servers do not always fail closed.
 
 ## Architecture
 
