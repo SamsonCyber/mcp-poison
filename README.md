@@ -20,21 +20,26 @@ cargo install --path .
 ## Happy path
 
 ```bash
-# Offline fixtures (exit 2 = findings at/above --fail-on)
-mcpdoctor fixtures/t3_line_jump.json
-mcpdoctor scan fixtures/clean_calculator.json --trusted   # expect 0 findings
+# One inventory (default: short human summary, not a JSON dump)
+mcpdoctor fixtures/t3_line_jump.json              # FINDINGS / exit 2
+mcpdoctor fixtures/clean_calculator.json --trusted  # CLEAN / exit 0
 
-# Cross-server shadow (two tools/list dumps)
-mcpdoctor multi fixtures/t4_cross_server_a.json fixtures/t4_cross_server_b.json
+# Two files → cross-server multi (no "multi" required)
+mcpdoctor fixtures/t4_cross_server_a.json fixtures/t4_cross_server_b.json
 
-# Live stdio (Python FastMCP = NDJSON)
+# Live stdio
 mcpdoctor scan -- python -m agent_tooling.sqlite_mcp
-mcpdoctor scan --command python --arg=-m --arg agent_tooling.sqlite_mcp
 
-# Pin / rugpull gate
-mcpdoctor pin fixtures/clean_calculator.json --server-key calc
-mcpdoctor check fixtures/t1_description_poison.json --server-key calc
+# Pin / rugpull CI gate
+mcpdoctor pin fixtures/clean_calculator.json -k calc
+mcpdoctor check fixtures/t1_description_poison.json -k calc
+
+# Machine output
+mcpdoctor tools.json --json
+mcpdoctor tools.json -o report.json
 ```
+
+Aliases: `doctor` / `audit` → `scan`.
 
 Exit codes: **0** clean · **2** findings · **1** error.
 
